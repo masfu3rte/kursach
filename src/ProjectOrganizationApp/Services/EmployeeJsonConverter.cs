@@ -1,5 +1,4 @@
 using System;
-using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using ProjectOrganizationApp.Models;
@@ -39,12 +38,7 @@ namespace ProjectOrganizationApp.Services
         public override void Write(Utf8JsonWriter writer, Employee value, JsonSerializerOptions options)
         {
             var type = value.GetType();
-            var safeOptions = new JsonSerializerOptions(options);
-            var selfConverter = safeOptions.Converters.FirstOrDefault(c => c is EmployeeJsonConverter);
-            if (selfConverter != null)
-            {
-                safeOptions.Converters.Remove(selfConverter);
-            }
+            var safeOptions = CreateSafeOptions(options);
 
             using var jsonDoc = JsonDocument.Parse(JsonSerializer.Serialize(value, type, safeOptions));
             writer.WriteStartObject();
@@ -54,6 +48,20 @@ namespace ProjectOrganizationApp.Services
                 property.WriteTo(writer);
             }
             writer.WriteEndObject();
+        }
+
+        private static JsonSerializerOptions CreateSafeOptions(JsonSerializerOptions options)
+        {
+            var safeOptions = new JsonSerializerOptions(options);
+            for (var i = safeOptions.Converters.Count - 1; i >= 0; i--)
+            {
+                if (safeOptions.Converters[i] is EmployeeJsonConverter)
+                {
+                    safeOptions.Converters.RemoveAt(i);
+                }
+            }
+
+            return safeOptions;
         }
     }
 }
