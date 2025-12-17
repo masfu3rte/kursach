@@ -22,15 +22,16 @@ namespace ProjectOrganizationApp.Services
                 return null;
             }
 
+            var safeOptions = CreateSafeOptions(options);
             var typeName = typeElement.GetString();
             var json = jsonDoc.RootElement.GetRawText();
             return typeName switch
             {
-                nameof(Constructor) => JsonSerializer.Deserialize<Constructor>(json, options),
-                nameof(Engineer) => JsonSerializer.Deserialize<Engineer>(json, options),
-                nameof(Technician) => JsonSerializer.Deserialize<Technician>(json, options),
-                nameof(LaboratoryAssistant) => JsonSerializer.Deserialize<LaboratoryAssistant>(json, options),
-                nameof(SupportStaff) => JsonSerializer.Deserialize<SupportStaff>(json, options),
+                nameof(Constructor) => JsonSerializer.Deserialize<Constructor>(json, safeOptions),
+                nameof(Engineer) => JsonSerializer.Deserialize<Engineer>(json, safeOptions),
+                nameof(Technician) => JsonSerializer.Deserialize<Technician>(json, safeOptions),
+                nameof(LaboratoryAssistant) => JsonSerializer.Deserialize<LaboratoryAssistant>(json, safeOptions),
+                nameof(SupportStaff) => JsonSerializer.Deserialize<SupportStaff>(json, safeOptions),
                 _ => null
             };
         }
