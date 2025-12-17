@@ -27,6 +27,10 @@ namespace ProjectOrganizationApp.Views
             this.employeeSort = new System.Windows.Forms.ComboBox();
             this.employeeList = new System.Windows.Forms.ListBox();
             this.tabDepartments = new System.Windows.Forms.TabPage();
+            this.departmentToolbar = new System.Windows.Forms.FlowLayoutPanel();
+            this.addDepartmentButton = new System.Windows.Forms.Button();
+            this.editDepartmentButton = new System.Windows.Forms.Button();
+            this.deleteDepartmentButton = new System.Windows.Forms.Button();
             this.departmentList = new System.Windows.Forms.ListBox();
             this.tabContracts = new System.Windows.Forms.TabPage();
             this.contractToolbar = new System.Windows.Forms.FlowLayoutPanel();
@@ -53,6 +57,7 @@ namespace ProjectOrganizationApp.Views
             this.tabEmployees.SuspendLayout();
             this.employeeToolbar.SuspendLayout();
             this.tabDepartments.SuspendLayout();
+            this.departmentToolbar.SuspendLayout();
             this.tabContracts.SuspendLayout();
             this.contractToolbar.SuspendLayout();
             this.tabProjects.SuspendLayout();
@@ -167,6 +172,7 @@ namespace ProjectOrganizationApp.Views
             // tabDepartments
             // 
             this.tabDepartments.Controls.Add(this.departmentList);
+            this.tabDepartments.Controls.Add(this.departmentToolbar);
             this.tabDepartments.Location = new System.Drawing.Point(4, 29);
             this.tabDepartments.Name = "tabDepartments";
             this.tabDepartments.Padding = new System.Windows.Forms.Padding(3);
@@ -174,19 +180,60 @@ namespace ProjectOrganizationApp.Views
             this.tabDepartments.TabIndex = 1;
             this.tabDepartments.Text = "Отделы";
             this.tabDepartments.UseVisualStyleBackColor = true;
-            // 
+            //
             // departmentList
-            // 
+            //
             this.departmentList.Dock = System.Windows.Forms.DockStyle.Fill;
             this.departmentList.FormattingEnabled = true;
             this.departmentList.ItemHeight = 20;
-            this.departmentList.Location = new System.Drawing.Point(3, 3);
+            this.departmentList.Location = new System.Drawing.Point(3, 46);
             this.departmentList.Name = "departmentList";
-            this.departmentList.Size = new System.Drawing.Size(1170, 622);
-            this.departmentList.TabIndex = 0;
-            // 
+            this.departmentList.Size = new System.Drawing.Size(1170, 579);
+            this.departmentList.TabIndex = 1;
+            //
+            // departmentToolbar
+            //
+            this.departmentToolbar.Controls.Add(this.addDepartmentButton);
+            this.departmentToolbar.Controls.Add(this.editDepartmentButton);
+            this.departmentToolbar.Controls.Add(this.deleteDepartmentButton);
+            this.departmentToolbar.Dock = System.Windows.Forms.DockStyle.Top;
+            this.departmentToolbar.Location = new System.Drawing.Point(3, 3);
+            this.departmentToolbar.Name = "departmentToolbar";
+            this.departmentToolbar.Size = new System.Drawing.Size(1170, 43);
+            this.departmentToolbar.TabIndex = 0;
+            //
+            // addDepartmentButton
+            //
+            this.addDepartmentButton.Location = new System.Drawing.Point(3, 3);
+            this.addDepartmentButton.Name = "addDepartmentButton";
+            this.addDepartmentButton.Size = new System.Drawing.Size(118, 34);
+            this.addDepartmentButton.TabIndex = 0;
+            this.addDepartmentButton.Text = "Добавить";
+            this.addDepartmentButton.UseVisualStyleBackColor = true;
+            this.addDepartmentButton.Click += new System.EventHandler(this.AddDepartmentButton_Click);
+            //
+            // editDepartmentButton
+            //
+            this.editDepartmentButton.Location = new System.Drawing.Point(127, 3);
+            this.editDepartmentButton.Name = "editDepartmentButton";
+            this.editDepartmentButton.Size = new System.Drawing.Size(118, 34);
+            this.editDepartmentButton.TabIndex = 1;
+            this.editDepartmentButton.Text = "Изменить";
+            this.editDepartmentButton.UseVisualStyleBackColor = true;
+            this.editDepartmentButton.Click += new System.EventHandler(this.EditDepartmentButton_Click);
+            //
+            // deleteDepartmentButton
+            //
+            this.deleteDepartmentButton.Location = new System.Drawing.Point(251, 3);
+            this.deleteDepartmentButton.Name = "deleteDepartmentButton";
+            this.deleteDepartmentButton.Size = new System.Drawing.Size(118, 34);
+            this.deleteDepartmentButton.TabIndex = 2;
+            this.deleteDepartmentButton.Text = "Удалить";
+            this.deleteDepartmentButton.UseVisualStyleBackColor = true;
+            this.deleteDepartmentButton.Click += new System.EventHandler(this.DeleteDepartmentButton_Click);
+            //
             // tabContracts
-            // 
+            //
             this.tabContracts.Controls.Add(this.contractList);
             this.tabContracts.Controls.Add(this.contractToolbar);
             this.tabContracts.Location = new System.Drawing.Point(4, 29);
@@ -428,6 +475,8 @@ namespace ProjectOrganizationApp.Views
             this.employeeToolbar.ResumeLayout(false);
             this.employeeToolbar.PerformLayout();
             this.tabDepartments.ResumeLayout(false);
+            this.departmentToolbar.ResumeLayout(false);
+            this.tabDepartments.PerformLayout();
             this.tabContracts.ResumeLayout(false);
             this.contractToolbar.ResumeLayout(false);
             this.contractToolbar.PerformLayout();
@@ -448,6 +497,10 @@ namespace ProjectOrganizationApp.Views
         private System.Windows.Forms.ListBox employeeList;
         private System.Windows.Forms.TabPage tabDepartments;
         private System.Windows.Forms.ListBox departmentList;
+        private System.Windows.Forms.FlowLayoutPanel departmentToolbar;
+        private System.Windows.Forms.Button addDepartmentButton;
+        private System.Windows.Forms.Button editDepartmentButton;
+        private System.Windows.Forms.Button deleteDepartmentButton;
         private System.Windows.Forms.TabPage tabContracts;
         private System.Windows.Forms.ListBox contractList;
         private System.Windows.Forms.TabPage tabProjects;

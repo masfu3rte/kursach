@@ -43,7 +43,11 @@ namespace ProjectOrganizationApp.Views
             foreach (var department in _context.Departments.OrderBy(d => d.Name))
             {
                 var head = department.ManagerId is not null ? GetEmployeeName(department.ManagerId.Value) : "не назначен";
-                departmentList.Items.Add($"{department.Name} (руководитель: {head}), сотрудников: {department.EmployeeIds.Count}");
+                departmentList.Items.Add(new ListItem<Department>
+                {
+                    Text = $"{department.Name} (руководитель: {head}), сотрудников: {department.EmployeeIds.Count}",
+                    Value = department
+                });
             }
 
             contractList.Items.Clear();
@@ -173,6 +177,12 @@ namespace ProjectOrganizationApp.Views
                 next.EmployeeIds.Add(selected.Value.Id);
             }
 
+            var managedDepartment = _context.Departments.FirstOrDefault(d => d.ManagerId == selected.Value.Id);
+            if (managedDepartment is not null && managedDepartment.Id != updated.DepartmentId)
+            {
+                managedDepartment.ManagerId = null;
+            }
+
             selected.Value.FirstName = updated.FirstName;
             selected.Value.LastName = updated.LastName;
             selected.Value.BirthDate = updated.BirthDate;
@@ -213,6 +223,14 @@ namespace ProjectOrganizationApp.Views
                 }
             }
 
+            foreach (var department in _context.Departments)
+            {
+                if (department.ManagerId == selected.Value.Id)
+                {
+                    department.ManagerId = null;
+                }
+            }
+
             _context.Employees.Remove(selected.Value);
             _context.Save();
             RefreshLists();
@@ -250,6 +268,8 @@ namespace ProjectOrganizationApp.Views
             selected.Value.TotalCost = updated.TotalCost;
             selected.Value.SignedAt = updated.SignedAt;
             selected.Value.CompletedAt = updated.CompletedAt;
+            selected.Value.ManagerId = updated.ManagerId;
+            EnsureManagerLinked(selected.Value.EmployeeIds, updated.ManagerId);
             _context.Save();
             RefreshLists();
         }
@@ -309,6 +329,8 @@ namespace ProjectOrganizationApp.Views
             selected.Value.Budget = updated.Budget;
             selected.Value.StartDate = updated.StartDate;
             selected.Value.EndDate = updated.EndDate;
+            selected.Value.ManagerId = updated.ManagerId;
+            EnsureManagerLinked(selected.Value.EmployeeIds, updated.ManagerId);
             _context.Save();
             RefreshLists();
         }
@@ -368,6 +390,104 @@ namespace ProjectOrganizationApp.Views
             }
         }
 
+        private void AddDepartmentButton_Click(object sender, EventArgs e)
+        {
+            var result = PromptForDepartment();
+            if (result is null)
+            {
+                return;
+            }
+
+            _context.Departments.Add(result);
+
+            if (result.ManagerId is Guid managerId)
+            {
+                var manager = _context.Employees.FirstOrDefault(e => e.Id == managerId);
+                if (manager is not null)
+                {
+                    MoveEmployeeToDepartment(manager, result.Id);
+                    result.EmployeeIds.Add(manager.Id);
+                }
+            }
+
+            _context.Save();
+            RefreshLists();
+        }
+
+        private void EditDepartmentButton_Click(object sender, EventArgs e)
+        {
+            if (departmentList.SelectedItem is not ListItem<Department> selected)
+            {
+                MessageBox.Show("Выберите отдел для редактирования");
+                return;
+            }
+
+            var updated = PromptForDepartment(selected.Value);
+            if (updated is null)
+            {
+                return;
+            }
+
+            var previousManagerId = selected.Value.ManagerId;
+            selected.Value.Name = updated.Name;
+            selected.Value.ManagerId = updated.ManagerId;
+
+            if (updated.ManagerId is Guid managerId)
+            {
+                var manager = _context.Employees.FirstOrDefault(e => e.Id == managerId);
+                if (manager is not null)
+                {
+                    MoveEmployeeToDepartment(manager, selected.Value.Id);
+                    if (!selected.Value.EmployeeIds.Contains(manager.Id))
+                    {
+                        selected.Value.EmployeeIds.Add(manager.Id);
+                    }
+                }
+            }
+
+            if (previousManagerId is Guid previousId && updated.ManagerId != previousId)
+            {
+                var previous = _context.Employees.FirstOrDefault(e => e.Id == previousId);
+                if (previous is not null && previous.DepartmentId != selected.Value.Id)
+                {
+                    selected.Value.EmployeeIds.Remove(previous.Id);
+                }
+            }
+
+            _context.Save();
+            RefreshLists();
+        }
+
+        private void DeleteDepartmentButton_Click(object sender, EventArgs e)
+        {
+            if (departmentList.SelectedItem is not ListItem<Department> selected)
+            {
+                MessageBox.Show("Выберите отдел для удаления");
+                return;
+            }
+
+            if (selected.Value.EmployeeIds.Any())
+            {
+                MessageBox.Show("Нельзя удалить отдел с сотрудниками. Переведите сотрудников в другие отделы.");
+                return;
+            }
+
+            if (_context.EquipmentPool.Any(e => e.DepartmentOwnerId == selected.Value.Id))
+            {
+                MessageBox.Show("Нельзя удалить отдел, за которым закреплено оборудование.");
+                return;
+            }
+
+            if (MessageBox.Show("Удалить выбранный отдел?", "Подтверждение", MessageBoxButtons.YesNo) == DialogResult.No)
+            {
+                return;
+            }
+
+            _context.Departments.Remove(selected.Value);
+            _context.Save();
+            RefreshLists();
+        }
+
         private IEnumerable<Employee> SortEmployees()
         {
             return employeeSort.SelectedIndex switch
@@ -397,77 +517,347 @@ namespace ProjectOrganizationApp.Views
 
         private Employee? PromptForEmployee(Employee? existing = null)
         {
-            var role = existing?.Position ?? ChooseRole();
-            if (role is null)
+            var roles = new[] { "Constructor", "Engineer", "Technician", "LaboratoryAssistant", "SupportStaff" };
+            using var form = CreateDialog("Сотрудник", 520, 340);
+
+            var table = BuildTableLayout(5);
+            var roleLabel = new Label { Text = "Категория", AutoSize = true };
+            var roleCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Enabled = existing is null };
+            roleCombo.Items.AddRange(roles);
+            roleCombo.SelectedItem = existing?.Position ?? roles.First();
+
+            var firstNameBox = new TextBox { Text = existing?.FirstName ?? string.Empty };
+            var lastNameBox = new TextBox { Text = existing?.LastName ?? string.Empty };
+            var birthPicker = new DateTimePicker { Value = existing?.BirthDate ?? DateTime.Today.AddYears(-25) };
+
+            var departmentCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+            foreach (var department in _context.Departments.OrderBy(d => d.Name))
+            {
+                var listItem = new ListItem<Department> { Text = department.Name, Value = department };
+                departmentCombo.Items.Add(listItem);
+                if (existing?.DepartmentId == department.Id)
+                {
+                    departmentCombo.SelectedItem = listItem;
+                }
+            }
+
+            if (departmentCombo.SelectedIndex < 0 && departmentCombo.Items.Count > 0)
+            {
+                departmentCombo.SelectedIndex = 0;
+            }
+
+            table.Controls.Add(roleLabel, 0, 0);
+            table.Controls.Add(roleCombo, 1, 0);
+            table.Controls.Add(new Label { Text = "Имя", AutoSize = true }, 0, 1);
+            table.Controls.Add(firstNameBox, 1, 1);
+            table.Controls.Add(new Label { Text = "Фамилия", AutoSize = true }, 0, 2);
+            table.Controls.Add(lastNameBox, 1, 2);
+            table.Controls.Add(new Label { Text = "Дата рождения", AutoSize = true }, 0, 3);
+            table.Controls.Add(birthPicker, 1, 3);
+            table.Controls.Add(new Label { Text = "Отдел", AutoSize = true }, 0, 4);
+            table.Controls.Add(departmentCombo, 1, 4);
+
+            var (ok, cancel) = AddDialogButtons(form);
+            ok.Click += (_, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(firstNameBox.Text) || string.IsNullOrWhiteSpace(lastNameBox.Text) || departmentCombo.SelectedItem is null)
+                {
+                    MessageBox.Show("Заполните все поля");
+                    return;
+                }
+
+                form.DialogResult = DialogResult.OK;
+                form.Close();
+            };
+
+            form.Controls.Add(table);
+            form.AcceptButton = ok;
+            form.CancelButton = cancel;
+
+            if (form.ShowDialog(this) != DialogResult.OK)
             {
                 return null;
             }
 
-            var firstName = Prompt("Имя", existing?.FirstName ?? "");
-            if (firstName is null)
+            var role = roleCombo.SelectedItem?.ToString() ?? existing?.Position ?? roles.First();
+            var target = existing ?? CreateEmployee(role);
+            target.FirstName = firstNameBox.Text.Trim();
+            target.LastName = lastNameBox.Text.Trim();
+            target.BirthDate = birthPicker.Value.Date;
+            if (departmentCombo.SelectedItem is ListItem<Department> selectedDepartment)
             {
-                return null;
+                target.DepartmentId = selectedDepartment.Value.Id;
             }
 
-            var lastName = Prompt("Фамилия", existing?.LastName ?? "");
-            if (lastName is null)
-            {
-                return null;
-            }
-
-            var birth = PromptDate("Дата рождения (гггг-мм-дд)", existing?.BirthDate ?? DateTime.Today.AddYears(-25));
-            if (birth is null)
-            {
-                return null;
-            }
-
-            var department = ChooseFromList("Отдел", _context.Departments, d => d.Name, existing?.DepartmentId);
-            if (department is null)
-            {
-                return null;
-            }
-
-            Employee target = existing ?? CreateEmployee(role);
-            target.FirstName = firstName;
-            target.LastName = lastName;
-            target.BirthDate = birth.Value;
-            target.DepartmentId = department.Id;
             return target;
         }
 
-        private string? ChooseRole()
+        private Contract? PromptForContract(Contract? existing = null)
         {
-            var roles = new[]
+            using var form = CreateDialog("Договор", 520, 360);
+            var table = BuildTableLayout(6);
+
+            var codeBox = new TextBox { Text = existing?.Code ?? string.Empty };
+            var customerBox = new TextBox { Text = existing?.Customer ?? string.Empty };
+            var costBox = new TextBox { Text = existing?.TotalCost.ToString() ?? "0" };
+            var signedPicker = new DateTimePicker { Value = existing?.SignedAt ?? DateTime.Today, ShowCheckBox = true, Checked = existing?.SignedAt is not null };
+            var completedPicker = new DateTimePicker { Value = existing?.CompletedAt ?? DateTime.Today.AddMonths(1), ShowCheckBox = true, Checked = existing?.CompletedAt is not null };
+            var managerCombo = BuildManagerCombo(existing?.ManagerId);
+
+            table.Controls.Add(new Label { Text = "Код", AutoSize = true }, 0, 0);
+            table.Controls.Add(codeBox, 1, 0);
+            table.Controls.Add(new Label { Text = "Заказчик", AutoSize = true }, 0, 1);
+            table.Controls.Add(customerBox, 1, 1);
+            table.Controls.Add(new Label { Text = "Стоимость", AutoSize = true }, 0, 2);
+            table.Controls.Add(costBox, 1, 2);
+            table.Controls.Add(new Label { Text = "Дата подписания", AutoSize = true }, 0, 3);
+            table.Controls.Add(signedPicker, 1, 3);
+            table.Controls.Add(new Label { Text = "Дата завершения", AutoSize = true }, 0, 4);
+            table.Controls.Add(completedPicker, 1, 4);
+            table.Controls.Add(new Label { Text = "Руководитель", AutoSize = true }, 0, 5);
+            table.Controls.Add(managerCombo, 1, 5);
+
+            var (ok, cancel) = AddDialogButtons(form);
+            ok.Click += (_, _) =>
             {
-                "Constructor",
-                "Engineer",
-                "Technician",
-                "LaboratoryAssistant",
-                "SupportStaff"
+                if (string.IsNullOrWhiteSpace(codeBox.Text) || string.IsNullOrWhiteSpace(customerBox.Text) || !decimal.TryParse(costBox.Text, out _))
+                {
+                    MessageBox.Show("Проверьте код, заказчика и сумму");
+                    return;
+                }
+
+                form.DialogResult = DialogResult.OK;
+                form.Close();
             };
 
-            using var form = new Form
+            form.Controls.Add(table);
+            form.AcceptButton = ok;
+            form.CancelButton = cancel;
+
+            if (form.ShowDialog(this) != DialogResult.OK)
             {
-                Width = 420,
-                Height = 180,
+                return null;
+            }
+
+            var target = existing ?? new Contract();
+            target.Code = codeBox.Text.Trim();
+            target.Customer = customerBox.Text.Trim();
+            target.TotalCost = decimal.Parse(costBox.Text);
+            target.SignedAt = signedPicker.Checked ? signedPicker.Value.Date : null;
+            target.CompletedAt = completedPicker.Checked ? completedPicker.Value.Date : null;
+            target.ManagerId = GetSelectedManagerId(managerCombo);
+            EnsureManagerLinked(target.EmployeeIds, target.ManagerId);
+            return target;
+        }
+
+        private Project? PromptForProject(Project? existing = null)
+        {
+            using var form = CreateDialog("Проект", 520, 360);
+            var table = BuildTableLayout(6);
+
+            var codeBox = new TextBox { Text = existing?.Code ?? string.Empty };
+            var nameBox = new TextBox { Text = existing?.Name ?? string.Empty };
+            var budgetBox = new TextBox { Text = existing?.Budget.ToString() ?? "0" };
+            var startPicker = new DateTimePicker { Value = existing?.StartDate ?? DateTime.Today, ShowCheckBox = true, Checked = existing?.StartDate is not null };
+            var endPicker = new DateTimePicker { Value = existing?.EndDate ?? DateTime.Today.AddMonths(1), ShowCheckBox = true, Checked = existing?.EndDate is not null };
+            var managerCombo = BuildManagerCombo(existing?.ManagerId);
+
+            table.Controls.Add(new Label { Text = "Код", AutoSize = true }, 0, 0);
+            table.Controls.Add(codeBox, 1, 0);
+            table.Controls.Add(new Label { Text = "Название", AutoSize = true }, 0, 1);
+            table.Controls.Add(nameBox, 1, 1);
+            table.Controls.Add(new Label { Text = "Бюджет", AutoSize = true }, 0, 2);
+            table.Controls.Add(budgetBox, 1, 2);
+            table.Controls.Add(new Label { Text = "Дата начала", AutoSize = true }, 0, 3);
+            table.Controls.Add(startPicker, 1, 3);
+            table.Controls.Add(new Label { Text = "Дата завершения", AutoSize = true }, 0, 4);
+            table.Controls.Add(endPicker, 1, 4);
+            table.Controls.Add(new Label { Text = "Руководитель", AutoSize = true }, 0, 5);
+            table.Controls.Add(managerCombo, 1, 5);
+
+            var (ok, cancel) = AddDialogButtons(form);
+            ok.Click += (_, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(codeBox.Text) || string.IsNullOrWhiteSpace(nameBox.Text) || !decimal.TryParse(budgetBox.Text, out _))
+                {
+                    MessageBox.Show("Проверьте код, название и бюджет");
+                    return;
+                }
+
+                form.DialogResult = DialogResult.OK;
+                form.Close();
+            };
+
+            form.Controls.Add(table);
+            form.AcceptButton = ok;
+            form.CancelButton = cancel;
+
+            if (form.ShowDialog(this) != DialogResult.OK)
+            {
+                return null;
+            }
+
+            var target = existing ?? new Project();
+            target.Code = codeBox.Text.Trim();
+            target.Name = nameBox.Text.Trim();
+            target.Budget = decimal.Parse(budgetBox.Text);
+            target.StartDate = startPicker.Checked ? startPicker.Value.Date : null;
+            target.EndDate = endPicker.Checked ? endPicker.Value.Date : null;
+            target.ManagerId = GetSelectedManagerId(managerCombo);
+            EnsureManagerLinked(target.EmployeeIds, target.ManagerId);
+            return target;
+        }
+
+        private Department? PromptForDepartment(Department? existing = null)
+        {
+            using var form = CreateDialog("Отдел", 520, 260);
+            var table = BuildTableLayout(3);
+
+            var nameBox = new TextBox { Text = existing?.Name ?? string.Empty };
+            var managerCombo = BuildManagerCombo(existing?.ManagerId, allowEmpty: true, "Без руководителя");
+
+            table.Controls.Add(new Label { Text = "Название", AutoSize = true }, 0, 0);
+            table.Controls.Add(nameBox, 1, 0);
+            table.Controls.Add(new Label { Text = "Руководитель", AutoSize = true }, 0, 1);
+            table.Controls.Add(managerCombo, 1, 1);
+
+            var (ok, cancel) = AddDialogButtons(form);
+            ok.Click += (_, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(nameBox.Text))
+                {
+                    MessageBox.Show("Введите название отдела");
+                    return;
+                }
+
+                form.DialogResult = DialogResult.OK;
+                form.Close();
+            };
+
+            form.Controls.Add(table);
+            form.AcceptButton = ok;
+            form.CancelButton = cancel;
+
+            if (form.ShowDialog(this) != DialogResult.OK)
+            {
+                return null;
+            }
+
+            var target = existing ?? new Department();
+            target.Name = nameBox.Text.Trim();
+            target.ManagerId = GetSelectedManagerId(managerCombo);
+            return target;
+        }
+
+        private Guid? GetSelectedManagerId(ComboBox combo)
+        {
+            if (combo.SelectedItem is ListItem<Employee> manager && manager.Value is not null)
+            {
+                return manager.Value.Id;
+            }
+
+            return null;
+        }
+
+        private ComboBox BuildManagerCombo(Guid? current, bool allowEmpty = true, string emptyLabel = "Не выбран")
+        {
+            var combo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+            if (allowEmpty)
+            {
+                combo.Items.Add(new ListItem<Employee> { Text = emptyLabel, Value = null! });
+            }
+
+            foreach (var employee in _context.Employees.OrderBy(e => e.LastName).ThenBy(e => e.FirstName))
+            {
+                var listItem = new ListItem<Employee> { Text = $"{employee.LastName} {employee.FirstName} ({employee.Position})", Value = employee };
+                combo.Items.Add(listItem);
+                if (employee.Id == current)
+                {
+                    combo.SelectedItem = listItem;
+                }
+            }
+
+            if (combo.SelectedIndex < 0 && combo.Items.Count > 0)
+            {
+                combo.SelectedIndex = 0;
+            }
+
+            return combo;
+        }
+
+        private static (Button ok, Button cancel) AddDialogButtons(Form form)
+        {
+            var ok = new Button { Text = "ОК", DialogResult = DialogResult.OK, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, Width = 90, Height = 32 };
+            var cancel = new Button { Text = "Отмена", DialogResult = DialogResult.Cancel, Anchor = AnchorStyles.Bottom | AnchorStyles.Right, Width = 90, Height = 32 };
+
+            ok.Top = form.ClientSize.Height - 50;
+            cancel.Top = form.ClientSize.Height - 50;
+            cancel.Left = form.ClientSize.Width - 110;
+            ok.Left = form.ClientSize.Width - 210;
+
+            form.Controls.Add(ok);
+            form.Controls.Add(cancel);
+            return (ok, cancel);
+        }
+
+        private static Form CreateDialog(string title, int width, int height)
+        {
+            return new Form
+            {
+                Width = width,
+                Height = height,
                 FormBorderStyle = FormBorderStyle.FixedDialog,
-                Text = "Категория сотрудника",
+                Text = title,
                 StartPosition = FormStartPosition.CenterParent,
                 MinimizeBox = false,
                 MaximizeBox = false
             };
+        }
 
-            var combo = new ComboBox { Left = 10, Top = 20, Width = 380, DropDownStyle = ComboBoxStyle.DropDownList };
-            combo.Items.AddRange(roles);
-            combo.SelectedIndex = 0;
-            var ok = new Button { Text = "ОК", Left = 230, Width = 75, Top = 100, DialogResult = DialogResult.OK };
-            var cancel = new Button { Text = "Отмена", Left = 315, Width = 75, Top = 100, DialogResult = DialogResult.Cancel };
-            form.Controls.AddRange(new Control[] { combo, ok, cancel });
-            form.AcceptButton = ok;
-            form.CancelButton = cancel;
+        private static TableLayoutPanel BuildTableLayout(int rows)
+        {
+            var table = new TableLayoutPanel
+            {
+                Dock = DockStyle.Top,
+                ColumnCount = 2,
+                RowCount = rows,
+                AutoSize = true,
+                Padding = new Padding(10),
+            };
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 40));
+            table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 60));
+            for (var i = 0; i < rows; i++)
+            {
+                table.RowStyles.Add(new RowStyle(SizeType.Absolute, 40));
+            }
 
-            var result = form.ShowDialog(this);
-            return result == DialogResult.OK ? combo.SelectedItem?.ToString() : null;
+            return table;
+        }
+
+        private void MoveEmployeeToDepartment(Employee employee, Guid departmentId)
+        {
+            if (employee.DepartmentId == departmentId)
+            {
+                return;
+            }
+
+            var current = _context.Departments.FirstOrDefault(d => d.Id == employee.DepartmentId);
+            current?.EmployeeIds.Remove(employee.Id);
+            var next = _context.Departments.FirstOrDefault(d => d.Id == departmentId);
+            if (next is not null && !next.EmployeeIds.Contains(employee.Id))
+            {
+                next.EmployeeIds.Add(employee.Id);
+            }
+
+            employee.DepartmentId = departmentId;
+        }
+
+        private void EnsureManagerLinked(ICollection<Guid> employeeIds, Guid? managerId)
+        {
+            if (managerId is Guid id && !employeeIds.Contains(id))
+            {
+                employeeIds.Add(id);
+            }
         }
 
         private static Employee CreateEmployee(string role)
@@ -482,165 +872,10 @@ namespace ProjectOrganizationApp.Views
             };
         }
 
-        private Contract? PromptForContract(Contract? existing = null)
-        {
-            var code = Prompt("Код договора", existing?.Code ?? "");
-            if (code is null)
-            {
-                return null;
-            }
-
-            var customer = Prompt("Заказчик", existing?.Customer ?? "");
-            if (customer is null)
-            {
-                return null;
-            }
-
-            var costText = Prompt("Стоимость", existing?.TotalCost.ToString() ?? "0");
-            if (costText is null || !decimal.TryParse(costText, out var cost))
-            {
-                return null;
-            }
-
-            var signed = PromptDate("Дата подписания (гггг-мм-дд)", existing?.SignedAt ?? DateTime.Today);
-            var completed = PromptDate("Дата завершения (гггг-мм-дд)", existing?.CompletedAt ?? DateTime.Today.AddMonths(1), true);
-
-            var target = existing ?? new Contract();
-            target.Code = code;
-            target.Customer = customer;
-            target.TotalCost = cost;
-            target.SignedAt = signed;
-            target.CompletedAt = completed;
-            return target;
-        }
-
-        private Project? PromptForProject(Project? existing = null)
-        {
-            var code = Prompt("Код проекта", existing?.Code ?? "");
-            if (code is null)
-            {
-                return null;
-            }
-
-            var name = Prompt("Название проекта", existing?.Name ?? "");
-            if (name is null)
-            {
-                return null;
-            }
-
-            var budgetText = Prompt("Бюджет", existing?.Budget.ToString() ?? "0");
-            if (budgetText is null || !decimal.TryParse(budgetText, out var budget))
-            {
-                return null;
-            }
-
-            var start = PromptDate("Дата начала (гггг-мм-дд)", existing?.StartDate ?? DateTime.Today, true);
-            var end = PromptDate("Дата завершения (гггг-мм-дд)", existing?.EndDate ?? DateTime.Today.AddMonths(1), true);
-
-            var target = existing ?? new Project();
-            target.Code = code;
-            target.Name = name;
-            target.Budget = budget;
-            target.StartDate = start;
-            target.EndDate = end;
-            return target;
-        }
-
-        private string? Prompt(string label, string initialValue)
-        {
-            using var form = new Form
-            {
-                Width = 420,
-                Height = 160,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                Text = label,
-                StartPosition = FormStartPosition.CenterParent,
-                MinimizeBox = false,
-                MaximizeBox = false
-            };
-
-            var labelControl = new Label { Left = 10, Top = 10, Width = 380, Text = label };
-            var inputBox = new TextBox { Left = 10, Top = 35, Width = 380, Text = initialValue };
-            var confirmation = new Button { Text = "ОК", Left = 230, Width = 75, Top = 70, DialogResult = DialogResult.OK };
-            var cancel = new Button { Text = "Отмена", Left = 315, Width = 75, Top = 70, DialogResult = DialogResult.Cancel };
-            confirmation.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            cancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
-            form.Controls.AddRange(new Control[] { labelControl, inputBox, confirmation, cancel });
-            form.AcceptButton = confirmation;
-            form.CancelButton = cancel;
-
-            var dialogResult = form.ShowDialog(this);
-            return dialogResult == DialogResult.OK ? inputBox.Text : null;
-        }
-
-        private DateTime? PromptDate(string label, DateTime initialValue, bool allowEmpty = false)
-        {
-            var value = Prompt(label, initialValue.ToString("yyyy-MM-dd"));
-            if (value is null)
-            {
-                return null;
-            }
-
-            if (string.IsNullOrWhiteSpace(value) && allowEmpty)
-            {
-                return null;
-            }
-
-            if (DateTime.TryParse(value, out var date))
-            {
-                return date;
-            }
-
-            MessageBox.Show("Не удалось разобрать дату");
-            return null;
-        }
-
-        private T? ChooseFromList<T>(string label, IEnumerable<T> items, Func<T, string> selector, Guid? current = null) where T : class
-        {
-            using var form = new Form
-            {
-                Width = 420,
-                Height = 200,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                Text = label,
-                StartPosition = FormStartPosition.CenterParent,
-                MinimizeBox = false,
-                MaximizeBox = false
-            };
-
-            var combo = new ComboBox { Left = 10, Top = 20, Width = 380, DropDownStyle = ComboBoxStyle.DropDownList };
-            foreach (var item in items)
-            {
-                var listItem = new ListItem<T> { Text = selector(item), Value = item };
-                combo.Items.Add(listItem);
-                if (current is Guid guid)
-                {
-                    if (item is Department dep && dep.Id == guid)
-                    {
-                        combo.SelectedItem = listItem;
-                    }
-                }
-            }
-
-            if (combo.SelectedIndex < 0 && combo.Items.Count > 0)
-            {
-                combo.SelectedIndex = 0;
-            }
-
-            var ok = new Button { Text = "ОК", Left = 230, Width = 75, Top = 120, DialogResult = DialogResult.OK };
-            var cancel = new Button { Text = "Отмена", Left = 315, Width = 75, Top = 120, DialogResult = DialogResult.Cancel };
-            form.Controls.AddRange(new Control[] { combo, ok, cancel });
-            form.AcceptButton = ok;
-            form.CancelButton = cancel;
-
-            var result = form.ShowDialog(this);
-            return result == DialogResult.OK && combo.SelectedItem is ListItem<T> chosen ? chosen.Value : null;
-        }
-
         private class ListItem<T>
         {
             public string Text { get; set; } = string.Empty;
-            public T Value { get; set; } = default!;
+            public T? Value { get; set; }
             public override string ToString() => Text;
         }
     }
