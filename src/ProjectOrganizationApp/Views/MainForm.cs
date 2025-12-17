@@ -12,16 +12,18 @@ namespace ProjectOrganizationApp.Views
     {
         private readonly DataContext _context;
         private readonly ReportsService _reports;
+        private bool _isInitialized;
 
         public MainForm()
         {
             InitializeComponent();
-            employeeSort.SelectedIndex = 0;
-            contractSort.SelectedIndex = 0;
-            projectSort.SelectedIndex = 0;
             _context = DataContext.Load();
             DemoDataSeeder.EnsureSeeded(_context);
             _reports = new ReportsService(_context);
+            employeeSort.SelectedIndex = 0;
+            contractSort.SelectedIndex = 0;
+            projectSort.SelectedIndex = 0;
+            _isInitialized = true;
             RefreshLists();
         }
 
@@ -342,9 +344,29 @@ namespace ProjectOrganizationApp.Views
             RefreshLists();
         }
 
-        private void EmployeeSort_SelectedIndexChanged(object sender, EventArgs e) => RefreshLists();
-        private void ContractSort_SelectedIndexChanged(object sender, EventArgs e) => RefreshLists();
-        private void ProjectSort_SelectedIndexChanged(object sender, EventArgs e) => RefreshLists();
+        private void EmployeeSort_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_isInitialized)
+            {
+                RefreshLists();
+            }
+        }
+
+        private void ContractSort_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_isInitialized)
+            {
+                RefreshLists();
+            }
+        }
+
+        private void ProjectSort_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            if (_isInitialized)
+            {
+                RefreshLists();
+            }
+        }
 
         private IEnumerable<Employee> SortEmployees()
         {
