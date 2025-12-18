@@ -13,6 +13,14 @@ namespace ProjectOrganizationApp.Views
         private readonly DataContext _context;
         private readonly ReportsService _reports;
         private bool _isInitialized;
+        private static readonly (string Key, string Label)[] RoleOptions =
+        {
+            (nameof(Constructor), "Конструктор"),
+            (nameof(Engineer), "Инженер"),
+            (nameof(Technician), "Техник"),
+            (nameof(LaboratoryAssistant), "Лаборант"),
+            (nameof(SupportStaff), "Вспомогательный персонал")
+        };
 
         public MainForm()
         {
@@ -34,7 +42,7 @@ namespace ProjectOrganizationApp.Views
             {
                 employeeList.Items.Add(new ListItem<Employee>
                 {
-                    Text = $"{employee.Position}: {employee.LastName} {employee.FirstName}, отдел: {GetDepartmentName(employee.DepartmentId)}, возраст: {employee.GetAge()}",
+                    Text = $"{GetRoleLabel(employee.Position)}: {employee.LastName} {employee.FirstName}, отдел: {GetDepartmentName(employee.DepartmentId)}, возраст: {employee.GetAge()}",
                     Value = employee
                 });
             }
@@ -77,7 +85,11 @@ namespace ProjectOrganizationApp.Views
             {
                 var owner = equipment.DepartmentOwnerId is not null ? GetDepartmentName(equipment.DepartmentOwnerId.Value) : "Общий фонд";
                 var allocated = equipment.AllocatedProjectId is not null ? GetProjectName(equipment.AllocatedProjectId.Value) : "свободно";
-                equipmentList.Items.Add($"{equipment.Name} ({equipment.Type}) — владелец: {owner}, используется: {allocated}");
+                equipmentList.Items.Add(new ListItem<Equipment>
+                {
+                    Text = $"{equipment.Name} ({equipment.Type}) — владелец: {owner}, используется: {allocated}",
+                    Value = equipment
+                });
             }
 
             _context.Save();
@@ -94,6 +106,11 @@ namespace ProjectOrganizationApp.Views
         private string GetProjectName(Guid id)
         {
             return _context.Projects.FirstOrDefault(p => p.Id == id)?.Name ?? "неизвестно";
+        }
+
+        private string GetRoleLabel(string roleKey)
+        {
+            return RoleOptions.FirstOrDefault(r => r.Key == roleKey).Label ?? roleKey;
         }
 
         private void BuildReport()
@@ -163,30 +180,35 @@ namespace ProjectOrganizationApp.Views
                 return;
             }
 
-            var updated = PromptForEmployee(selected.Value);
+            var original = selected.Value;
+            var previousDepartmentId = original.DepartmentId;
+
+            var updated = PromptForEmployee(original);
             if (updated is null)
             {
                 return;
             }
 
-            if (updated.DepartmentId != selected.Value.DepartmentId)
+            if (updated.DepartmentId != previousDepartmentId)
             {
-                var previous = _context.Departments.First(d => d.Id == selected.Value.DepartmentId);
-                previous.EmployeeIds.Remove(selected.Value.Id);
+                var previous = _context.Departments.First(d => d.Id == previousDepartmentId);
+                previous.EmployeeIds.Remove(original.Id);
                 var next = _context.Departments.First(d => d.Id == updated.DepartmentId);
-                next.EmployeeIds.Add(selected.Value.Id);
+                next.EmployeeIds.Add(original.Id);
             }
 
-            var managedDepartment = _context.Departments.FirstOrDefault(d => d.ManagerId == selected.Value.Id);
+            var managedDepartment = _context.Departments.FirstOrDefault(d => d.ManagerId == original.Id);
             if (managedDepartment is not null && managedDepartment.Id != updated.DepartmentId)
             {
                 managedDepartment.ManagerId = null;
             }
 
-            selected.Value.FirstName = updated.FirstName;
-            selected.Value.LastName = updated.LastName;
-            selected.Value.BirthDate = updated.BirthDate;
-            selected.Value.DepartmentId = updated.DepartmentId;
+            if (!ReferenceEquals(updated, original))
+            {
+                ReplaceEmployee(original, updated);
+                selected.Value = updated;
+            }
+
             _context.Save();
             RefreshLists();
         }
@@ -488,6 +510,64 @@ namespace ProjectOrganizationApp.Views
             RefreshLists();
         }
 
+        private void AddEquipmentButton_Click(object sender, EventArgs e)
+        {
+            var equipment = PromptForEquipment();
+            if (equipment is null)
+            {
+                return;
+            }
+
+            _context.EquipmentPool.Add(equipment);
+            UpdateDepartmentEquipmentLinks(null, equipment);
+            UpdateProjectEquipmentLinks(null, equipment);
+            _context.Save();
+            RefreshLists();
+        }
+
+        private void EditEquipmentButton_Click(object sender, EventArgs e)
+        {
+            if (equipmentList.SelectedItem is not ListItem<Equipment> selected)
+            {
+                MessageBox.Show("Выберите оборудование для редактирования");
+                return;
+            }
+
+            var previousDepartmentId = selected.Value.DepartmentOwnerId;
+            var previousProjectId = selected.Value.AllocatedProjectId;
+
+            var updated = PromptForEquipment(selected.Value);
+            if (updated is null)
+            {
+                return;
+            }
+
+            UpdateDepartmentEquipmentLinks(previousDepartmentId, selected.Value);
+            UpdateProjectEquipmentLinks(previousProjectId, selected.Value);
+            _context.Save();
+            RefreshLists();
+        }
+
+        private void DeleteEquipmentButton_Click(object sender, EventArgs e)
+        {
+            if (equipmentList.SelectedItem is not ListItem<Equipment> selected)
+            {
+                MessageBox.Show("Выберите оборудование для удаления");
+                return;
+            }
+
+            if (MessageBox.Show("Удалить выбранное оборудование?", "Подтверждение", MessageBoxButtons.YesNo) == DialogResult.No)
+            {
+                return;
+            }
+
+            UpdateDepartmentEquipmentLinks(selected.Value.DepartmentOwnerId, selected.Value);
+            UpdateProjectEquipmentLinks(selected.Value.AllocatedProjectId, selected.Value);
+            _context.EquipmentPool.Remove(selected.Value);
+            _context.Save();
+            RefreshLists();
+        }
+
         private IEnumerable<Employee> SortEmployees()
         {
             return employeeSort.SelectedIndex switch
@@ -517,14 +597,25 @@ namespace ProjectOrganizationApp.Views
 
         private Employee? PromptForEmployee(Employee? existing = null)
         {
-            var roles = new[] { "Constructor", "Engineer", "Technician", "LaboratoryAssistant", "SupportStaff" };
             using var form = CreateDialog("Сотрудник", 520, 340);
 
             var table = BuildTableLayout(5);
             var roleLabel = new Label { Text = "Категория", AutoSize = true };
-            var roleCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Enabled = existing is null };
-            roleCombo.Items.AddRange(roles);
-            roleCombo.SelectedItem = existing?.Position ?? roles.First();
+            var roleCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+            foreach (var option in RoleOptions)
+            {
+                var item = new ListItem<string> { Text = option.Label, Value = option.Key };
+                roleCombo.Items.Add(item);
+                if (existing?.Position == option.Key)
+                {
+                    roleCombo.SelectedItem = item;
+                }
+            }
+
+            if (roleCombo.SelectedIndex < 0 && roleCombo.Items.Count > 0)
+            {
+                roleCombo.SelectedIndex = 0;
+            }
 
             var firstNameBox = new TextBox { Text = existing?.FirstName ?? string.Empty };
             var lastNameBox = new TextBox { Text = existing?.LastName ?? string.Empty };
@@ -579,8 +670,15 @@ namespace ProjectOrganizationApp.Views
                 return null;
             }
 
-            var role = roleCombo.SelectedItem?.ToString() ?? existing?.Position ?? roles.First();
+            var role = roleCombo.SelectedItem is ListItem<string> selectedRole ? selectedRole.Value : existing?.Position ?? RoleOptions.First().Key;
             var target = existing ?? CreateEmployee(role);
+            if (existing is not null && existing.Position != role)
+            {
+                target = CreateEmployee(role, existing.Id);
+                target.HourlyRate = existing.HourlyRate;
+                target.IsDepartmentHead = existing.IsDepartmentHead;
+            }
+
             target.FirstName = firstNameBox.Text.Trim();
             target.LastName = lastNameBox.Text.Trim();
             target.BirthDate = birthPicker.Value.Date;
@@ -749,6 +847,90 @@ namespace ProjectOrganizationApp.Views
             return target;
         }
 
+        private Equipment? PromptForEquipment(Equipment? existing = null)
+        {
+            using var form = CreateDialog("Оборудование", 520, 320);
+            var table = BuildTableLayout(5);
+
+            var nameBox = new TextBox { Text = existing?.Name ?? string.Empty };
+            var typeBox = new TextBox { Text = existing?.Type ?? string.Empty };
+            var sharedCheck = new CheckBox { Text = "Общее оборудование", Checked = existing?.IsShared ?? true };
+
+            var departmentCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+            departmentCombo.Items.Add(new ListItem<Department> { Text = "Общий фонд", Value = null });
+            foreach (var department in _context.Departments.OrderBy(d => d.Name))
+            {
+                var item = new ListItem<Department> { Text = department.Name, Value = department };
+                departmentCombo.Items.Add(item);
+                if (existing?.DepartmentOwnerId == department.Id)
+                {
+                    departmentCombo.SelectedItem = item;
+                }
+            }
+
+            if (departmentCombo.SelectedIndex < 0 && departmentCombo.Items.Count > 0)
+            {
+                departmentCombo.SelectedIndex = 0;
+            }
+
+            var projectCombo = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList };
+            projectCombo.Items.Add(new ListItem<Project> { Text = "Не назначено", Value = null });
+            foreach (var project in _context.Projects.OrderBy(p => p.Name))
+            {
+                var item = new ListItem<Project> { Text = $"{project.Code} — {project.Name}", Value = project };
+                projectCombo.Items.Add(item);
+                if (existing?.AllocatedProjectId == project.Id)
+                {
+                    projectCombo.SelectedItem = item;
+                }
+            }
+
+            if (projectCombo.SelectedIndex < 0 && projectCombo.Items.Count > 0)
+            {
+                projectCombo.SelectedIndex = 0;
+            }
+
+            table.Controls.Add(new Label { Text = "Название", AutoSize = true }, 0, 0);
+            table.Controls.Add(nameBox, 1, 0);
+            table.Controls.Add(new Label { Text = "Тип", AutoSize = true }, 0, 1);
+            table.Controls.Add(typeBox, 1, 1);
+            table.Controls.Add(new Label { Text = "Закреплено за", AutoSize = true }, 0, 2);
+            table.Controls.Add(departmentCombo, 1, 2);
+            table.Controls.Add(new Label { Text = "Назначено на проект", AutoSize = true }, 0, 3);
+            table.Controls.Add(projectCombo, 1, 3);
+            table.Controls.Add(sharedCheck, 1, 4);
+
+            var (ok, cancel) = AddDialogButtons(form);
+            ok.Click += (_, _) =>
+            {
+                if (string.IsNullOrWhiteSpace(nameBox.Text) || string.IsNullOrWhiteSpace(typeBox.Text))
+                {
+                    MessageBox.Show("Укажите название и тип оборудования");
+                    return;
+                }
+
+                form.DialogResult = DialogResult.OK;
+                form.Close();
+            };
+
+            form.Controls.Add(table);
+            form.AcceptButton = ok;
+            form.CancelButton = cancel;
+
+            if (form.ShowDialog(this) != DialogResult.OK)
+            {
+                return null;
+            }
+
+            var target = existing ?? new Equipment();
+            target.Name = nameBox.Text.Trim();
+            target.Type = typeBox.Text.Trim();
+            target.IsShared = sharedCheck.Checked;
+            target.DepartmentOwnerId = departmentCombo.SelectedItem is ListItem<Department> department && department.Value is not null ? department.Value.Id : null;
+            target.AllocatedProjectId = projectCombo.SelectedItem is ListItem<Project> project && project.Value is not null ? project.Value.Id : null;
+            return target;
+        }
+
         private Guid? GetSelectedManagerId(ComboBox combo)
         {
             if (combo.SelectedItem is ListItem<Employee> manager && manager.Value is not null)
@@ -769,7 +951,8 @@ namespace ProjectOrganizationApp.Views
 
             foreach (var employee in _context.Employees.OrderBy(e => e.LastName).ThenBy(e => e.FirstName))
             {
-                var listItem = new ListItem<Employee> { Text = $"{employee.LastName} {employee.FirstName} ({employee.Position})", Value = employee };
+                var roleLabel = GetRoleLabel(employee.Position);
+                var listItem = new ListItem<Employee> { Text = $"{employee.LastName} {employee.FirstName} ({roleLabel})", Value = employee };
                 combo.Items.Add(listItem);
                 if (employee.Id == current)
                 {
@@ -860,15 +1043,67 @@ namespace ProjectOrganizationApp.Views
             }
         }
 
-        private static Employee CreateEmployee(string role)
+        private void UpdateDepartmentEquipmentLinks(Guid? previousDepartmentId, Equipment equipment)
+        {
+            if (previousDepartmentId is Guid previousId)
+            {
+                var previousDepartment = _context.Departments.FirstOrDefault(d => d.Id == previousId);
+                previousDepartment?.EquipmentIds.Remove(equipment.Id);
+            }
+
+            if (equipment.DepartmentOwnerId is Guid currentId)
+            {
+                var currentDepartment = _context.Departments.FirstOrDefault(d => d.Id == currentId);
+                if (currentDepartment is not null && !currentDepartment.EquipmentIds.Contains(equipment.Id))
+                {
+                    currentDepartment.EquipmentIds.Add(equipment.Id);
+                }
+            }
+        }
+
+        private void UpdateProjectEquipmentLinks(Guid? previousProjectId, Equipment equipment)
+        {
+            if (previousProjectId is Guid previousId)
+            {
+                var previousProject = _context.Projects.FirstOrDefault(p => p.Id == previousId);
+                previousProject?.EquipmentIds.Remove(equipment.Id);
+            }
+
+            if (equipment.AllocatedProjectId is Guid currentId)
+            {
+                var currentProject = _context.Projects.FirstOrDefault(p => p.Id == currentId);
+                if (currentProject is not null && !currentProject.EquipmentIds.Contains(equipment.Id))
+                {
+                    currentProject.EquipmentIds.Add(equipment.Id);
+                }
+            }
+        }
+
+        private void ReplaceEmployee(Employee original, Employee replacement)
+        {
+            if (_context.Employees is IList<Employee> list)
+            {
+                var index = list.IndexOf(original);
+                if (index >= 0)
+                {
+                    list[index] = replacement;
+                    return;
+                }
+            }
+
+            _context.Employees.Remove(original);
+            _context.Employees.Add(replacement);
+        }
+
+        private static Employee CreateEmployee(string role, Guid? id = null)
         {
             return role switch
             {
-                nameof(Constructor) => new Constructor(),
-                nameof(Engineer) => new Engineer(),
-                nameof(Technician) => new Technician(),
-                nameof(LaboratoryAssistant) => new LaboratoryAssistant(),
-                _ => new SupportStaff()
+                nameof(Constructor) => new Constructor { Id = id ?? Guid.NewGuid() },
+                nameof(Engineer) => new Engineer { Id = id ?? Guid.NewGuid() },
+                nameof(Technician) => new Technician { Id = id ?? Guid.NewGuid() },
+                nameof(LaboratoryAssistant) => new LaboratoryAssistant { Id = id ?? Guid.NewGuid() },
+                _ => new SupportStaff { Id = id ?? Guid.NewGuid() }
             };
         }
 
