@@ -50,6 +50,10 @@ namespace ProjectOrganizationApp.Views
             this.projectList = new System.Windows.Forms.ListBox();
             this.tabEquipment = new System.Windows.Forms.TabPage();
             this.equipmentList = new System.Windows.Forms.ListBox();
+            this.equipmentToolbar = new System.Windows.Forms.FlowLayoutPanel();
+            this.addEquipmentButton = new System.Windows.Forms.Button();
+            this.editEquipmentButton = new System.Windows.Forms.Button();
+            this.deleteEquipmentButton = new System.Windows.Forms.Button();
             this.tabReports = new System.Windows.Forms.TabPage();
             this.reportOutput = new System.Windows.Forms.TextBox();
             this.refreshButton = new System.Windows.Forms.Button();
@@ -411,6 +415,7 @@ namespace ProjectOrganizationApp.Views
             // tabEquipment
             // 
             this.tabEquipment.Controls.Add(this.equipmentList);
+            this.tabEquipment.Controls.Add(this.equipmentToolbar);
             this.tabEquipment.Location = new System.Drawing.Point(4, 29);
             this.tabEquipment.Name = "tabEquipment";
             this.tabEquipment.Padding = new System.Windows.Forms.Padding(3);
@@ -424,10 +429,51 @@ namespace ProjectOrganizationApp.Views
             this.equipmentList.Dock = System.Windows.Forms.DockStyle.Fill;
             this.equipmentList.FormattingEnabled = true;
             this.equipmentList.ItemHeight = 20;
-            this.equipmentList.Location = new System.Drawing.Point(3, 3);
+            this.equipmentList.Location = new System.Drawing.Point(3, 46);
             this.equipmentList.Name = "equipmentList";
-            this.equipmentList.Size = new System.Drawing.Size(1170, 622);
+            this.equipmentList.Size = new System.Drawing.Size(1170, 579);
             this.equipmentList.TabIndex = 0;
+            // 
+            // equipmentToolbar
+            // 
+            this.equipmentToolbar.Controls.Add(this.addEquipmentButton);
+            this.equipmentToolbar.Controls.Add(this.editEquipmentButton);
+            this.equipmentToolbar.Controls.Add(this.deleteEquipmentButton);
+            this.equipmentToolbar.Dock = System.Windows.Forms.DockStyle.Top;
+            this.equipmentToolbar.Location = new System.Drawing.Point(3, 3);
+            this.equipmentToolbar.Name = "equipmentToolbar";
+            this.equipmentToolbar.Size = new System.Drawing.Size(1170, 43);
+            this.equipmentToolbar.TabIndex = 1;
+            // 
+            // addEquipmentButton
+            // 
+            this.addEquipmentButton.Location = new System.Drawing.Point(3, 3);
+            this.addEquipmentButton.Name = "addEquipmentButton";
+            this.addEquipmentButton.Size = new System.Drawing.Size(118, 34);
+            this.addEquipmentButton.TabIndex = 0;
+            this.addEquipmentButton.Text = "Добавить";
+            this.addEquipmentButton.UseVisualStyleBackColor = true;
+            this.addEquipmentButton.Click += new System.EventHandler(this.AddEquipmentButton_Click);
+            // 
+            // editEquipmentButton
+            // 
+            this.editEquipmentButton.Location = new System.Drawing.Point(127, 3);
+            this.editEquipmentButton.Name = "editEquipmentButton";
+            this.editEquipmentButton.Size = new System.Drawing.Size(118, 34);
+            this.editEquipmentButton.TabIndex = 1;
+            this.editEquipmentButton.Text = "Изменить";
+            this.editEquipmentButton.UseVisualStyleBackColor = true;
+            this.editEquipmentButton.Click += new System.EventHandler(this.EditEquipmentButton_Click);
+            // 
+            // deleteEquipmentButton
+            // 
+            this.deleteEquipmentButton.Location = new System.Drawing.Point(251, 3);
+            this.deleteEquipmentButton.Name = "deleteEquipmentButton";
+            this.deleteEquipmentButton.Size = new System.Drawing.Size(118, 34);
+            this.deleteEquipmentButton.TabIndex = 2;
+            this.deleteEquipmentButton.Text = "Удалить";
+            this.deleteEquipmentButton.UseVisualStyleBackColor = true;
+            this.deleteEquipmentButton.Click += new System.EventHandler(this.DeleteEquipmentButton_Click);
             // 
             // tabReports
             // 
@@ -528,5 +574,9 @@ namespace ProjectOrganizationApp.Views
         private System.Windows.Forms.Button deleteProjectButton;
         private System.Windows.Forms.Label projectSortLabel;
         private System.Windows.Forms.ComboBox projectSort;
+        private System.Windows.Forms.FlowLayoutPanel equipmentToolbar;
+        private System.Windows.Forms.Button addEquipmentButton;
+        private System.Windows.Forms.Button editEquipmentButton;
+        private System.Windows.Forms.Button deleteEquipmentButton;
     }
 }
